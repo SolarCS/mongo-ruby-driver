@@ -49,8 +49,17 @@ module Mongo
     def read_with_retry(attempt = 0, &block)
       begin
         block.call
-      rescue Error::SocketError, Error::SocketTimeoutError
+      rescue Error::SocketTimeoutError
         retry_operation(&block)
+      rescue Error::SocketError => e
+        if cluster.replica_set?
+          if attempt < cluster.max_read_retries
+            sleep(cluster.read_retry_interval)
+            read_with_retry(attempt + 1, &block)
+          else
+            raise e
+          end
+        end
       rescue Error::OperationFailure => e
         if cluster.sharded? && e.retryable?
           if attempt < cluster.max_read_retries
